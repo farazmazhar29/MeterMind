@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metermind"
+version = "0.1.0"
+description = "Natural-language query and anomaly-explanation agent over energy time-series data"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "requests>=2.32",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "influxdb-client[ciso]>=1.44",
+    "psycopg[binary]>=3.2",
+    "holidays>=0.57",
+]
+
+[project.optional-dependencies]
+# Week 2+. Declared so the intended shape of the project is visible,
+# but not installed by default -- the Week 1 data pipeline does not need them.
+agent = [
+    "anthropic>=0.40",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pgvector>=0.3",
+    "sentence-transformers>=3.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

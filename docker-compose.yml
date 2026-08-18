@@ -1,0 +1,74 @@
+# MeterMind local stack.
+#
+#   cp .env.example .env
+#   docker compose up -d
+#   docker compose ps          # both services should report (healthy)
+#
+# Compose reads .env automatically, and so does src/metermind/config.py, so the
+# containers and the Python code always agree on credentials.
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: metermind-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      # These run only on an empty volume. Changing them later has no effect
+      # unless you also `docker compose down -v`.
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_ADMIN_USER}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_ADMIN_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+      # 0 = never expire. The dataset spans years; a default retention policy
+      # would silently delete most of it.
+      DOCKER_INFLUXDB_INIT_RETENTION: 0
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  postgres:
+    # pgvector/pgvector ships stock Postgres with the vector extension already
+    # compiled in; the plain postgres image does not have it.
+    image: pgvector/pgvector:pg16
+    container_name: metermind-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Bootstrap only -- runs once, on an empty data directory. It does nothing
+      # but enable the extension. Tables live in schema.sql, which is applied
+      # idempotently by the Python code so that adding a table in Week 2 does
+      # not require wiping the volume.
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # --- Week 3 --------------------------------------------------------------
+  # The FastAPI service is deliberately not defined yet. It is added once there
+  # is an app to serve; an empty container that only proves Compose syntax is
+  # worth nothing. When it lands it will use INFLUX_URL=http://influxdb:8086
+  # and POSTGRES_HOST=postgres rather than the localhost values in .env.
+
+volumes:
+  influxdb-data:
+  influxdb-config:
+  postgres-data:

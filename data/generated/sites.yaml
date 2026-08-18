@@ -1,0 +1,132 @@
+# The MeterMind site register.
+#
+# ALL EIGHT SITES ARE FICTIONAL. The companies, addresses, meter IDs and
+# nameplate figures are invented. Only the *seasonal shape* of their consumption
+# derives from measured data (OPSD German national load) -- see
+# src/metermind/data/opsd.py.
+#
+# This file is the source of truth for site identity and scale. It is committed
+# because the eval suite scores answers against it.
+#
+# Scale lives here; SHAPE does not. base_load_kw and peak_load_kw are nameplate
+# figures of the sort a real site register would hold. How a site moves between
+# those two numbers over a day or a week is decided by src/metermind/data/
+# profiles.py -- see docs/CONTRACTS.md.
+#
+# The base:peak ratio is the one modelling hint encoded here and it is
+# deliberate: cold storage sits near its peak around the clock, an office spends
+# most of the week near its base.
+
+sites:
+  - site_id: nordwerk-kassel
+    name: Nordwerk Metallverarbeitung Kassel
+    category: manufacturing
+    city: Kassel
+    meter_id: DE-MM-0001
+    floor_area_m2: 14200
+    base_load_kw: 180.0
+    peak_load_kw: 1450.0
+    commissioned_on: 2016-04-11
+    notes: >-
+      Sheet metal stamping and powder coating. Two production shifts on
+      weekdays, maintenance shift most Saturday mornings. Powder coating ovens
+      dominate the load and are slow to heat, so shift starts ramp rather than
+      step.
+
+  - site_id: hansawerk-hamburg
+    name: Hansawerk Lebensmittelproduktion Hamburg
+    category: manufacturing
+    city: Hamburg
+    meter_id: DE-MM-0002
+    floor_area_m2: 9800
+    base_load_kw: 260.0
+    peak_load_kw: 1100.0
+    commissioned_on: 2014-09-02
+    notes: >-
+      Chilled ready-meal production. Process refrigeration keeps the base load
+      high even when the lines are stopped. Runs a third shift on weeknights
+      during the pre-Christmas peak.
+
+  - site_id: sudpark-muenchen
+    name: Südpark Bürokomplex München
+    category: office
+    city: München
+    meter_id: DE-MM-0003
+    floor_area_m2: 22500
+    base_load_kw: 45.0
+    peak_load_kw: 380.0
+    commissioned_on: 2019-01-15
+    notes: >-
+      Six-storey office let to four tenants. Fully electric HVAC, so summer
+      cooling load is the annual peak rather than winter. Near-empty at
+      weekends.
+
+  - site_id: techcampus-dresden
+    name: TechCampus Dresden
+    category: office
+    city: Dresden
+    meter_id: DE-MM-0004
+    floor_area_m2: 17300
+    base_load_kw: 70.0
+    peak_load_kw: 520.0
+    commissioned_on: 2020-06-30
+    notes: >-
+      Office and light R&D. A small on-site server room runs continuously,
+      lifting the overnight and weekend floor well above a conventional office.
+
+  - site_id: frostlager-bremen
+    name: Frostlager Bremen Logistikzentrum
+    category: cold_storage
+    city: Bremen
+    meter_id: DE-MM-0005
+    floor_area_m2: 31000
+    base_load_kw: 320.0
+    peak_load_kw: 780.0
+    commissioned_on: 2013-03-20
+    notes: >-
+      Deep-freeze distribution warehouse held at -24 °C. Compressors run around
+      the clock; load tracks outside temperature and door-opening frequency far
+      more than time of day. Four chillers, one of which is the oldest asset on
+      the site.
+
+  - site_id: kuehlhaus-duisburg
+    name: Kühlhaus Duisburg Hafen
+    category: cold_storage
+    city: Duisburg
+    meter_id: DE-MM-0006
+    floor_area_m2: 12400
+    base_load_kw: 145.0
+    peak_load_kw: 390.0
+    commissioned_on: 2017-11-08
+    notes: >-
+      Port-side chilled storage at +2 °C, mostly fruit and dairy. Inbound
+      container volume drives a mild weekday pattern on top of a flat
+      refrigeration base.
+
+  - site_id: marktplatz-koeln
+    name: Marktplatz Verbrauchermarkt Köln
+    category: retail
+    city: Köln
+    meter_id: DE-MM-0007
+    floor_area_m2: 4100
+    base_load_kw: 55.0
+    peak_load_kw: 240.0
+    commissioned_on: 2018-05-22
+    notes: >-
+      Full-range supermarket, open 07:00-21:00 Mon-Sat, closed Sundays under
+      German shop-opening law. Refrigerated display cases keep the overnight
+      load high relative to floor area. Saturday is the busiest trading day.
+
+  - site_id: stadtmarkt-leipzig
+    name: Stadtmarkt Leipzig
+    category: retail
+    city: Leipzig
+    meter_id: DE-MM-0008
+    floor_area_m2: 2600
+    base_load_kw: 38.0
+    peak_load_kw: 185.0
+    commissioned_on: 2021-02-17
+    notes: >-
+      Smaller city-centre market hall, 08:00-20:00 Mon-Sat, closed Sundays.
+      Mixed tenants including a bakery that starts around 04:00, so the morning
+      ramp begins well before opening.
