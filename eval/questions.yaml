@@ -1,0 +1,270 @@
+# MeterMind evaluation set.
+#
+# Written before any agent or RAG code exists, on purpose. Deciding what a good
+# answer looks like *after* seeing what the agent produces is how eval suites end
+# up measuring nothing.
+#
+# ---------------------------------------------------------------------------
+# THE ONE RULE: NO HAND-WRITTEN EXPECTED ANSWERS
+# ---------------------------------------------------------------------------
+# Every question carries a `verify` block naming a deterministic function and
+# its arguments. `python -m eval.resolve_gold` runs those against the loaded
+# dataset and materialises eval/gold.json (gitignored, derived, never edited).
+#
+# The reason is concrete: the synthetic dataset is regenerated from a seed, and
+# the window slides forward every time it is rebuilt. A hardcoded "1,412 kW"
+# would be silently wrong the next morning, and a silently wrong eval suite is
+# worse than none. Computing gold from the same data the agent queries means the
+# two cannot drift apart.
+#
+# ---------------------------------------------------------------------------
+# SCHEMA
+# ---------------------------------------------------------------------------
+#   id            unique; prefix ts- / an- / rag- by category
+#   category      timeseries_lookup | anomaly | contextual_rag
+#   question      the natural-language prompt, exactly as a user would type it
+#   answer_shape  what a correct response must contain (drives the grader)
+#   verify.fn     verifier name; see the registry below
+#   verify.args   arguments, including the window
+#   tolerance     overrides the defaults below
+#   expects_tools tools the agent should call. Scored separately from the answer:
+#                 a right answer reached by the wrong route is worth knowing about
+#   difficulty    easy | medium | hard
+#   status        ready | blocked_on_corpus | needs_anomaly_binding
+#   why           what this question is actually testing. Not decoration -- if it
+#                 cannot be stated, the question is probably redundant
+#
+# WINDOW SPEC
+#   {relative: last_tuesday}        resolved against as_of, in `timezone`
+#   {relative: last_7_days}
+#   {relative: last_calendar_month}
+#   {relative: last_30_days}
+#   {relative: last_quarter}
+#   {start: 2026-06-01, end: 2026-06-30}    absolute local dates, end inclusive
+#
+# All windows are resolved in Europe/Berlin and converted to UTC before
+# querying. "Last Tuesday" is a local-calendar concept; storage is UTC. Getting
+# this wrong shifts every answer by an hour for half the year.
+
+version: 1
+
+# Relative windows resolve against build_manifest.json -> window_end_utc, not
+# against wall-clock now, so a gold file stays valid for the dataset it was
+# built from.
+as_of: build_manifest
+timezone: Europe/Berlin
+
+tolerances:
+  # Answers are graded numerically, not by string match.
+  numeric_rel_tol: 0.02
+
+  # Timing tolerance by anomaly type. Spikes and drop-offs have sharp edges;
+  # drift genuinely does not -- a slowly fouling heat exchanger has no single
+  # correct start minute, so demanding one would penalise correct answers.
+  timestamp_minutes:
+    default: 60
+    spike: 60
+    dropoff: 60
+    drift: 7200        # 5 days
+
+  # For "which sites" answers: the returned set must match exactly.
+  set_match: exact
+
+# ---------------------------------------------------------------------------
+# VERIFIER REGISTRY
+# ---------------------------------------------------------------------------
+# Implemented in eval/verifiers.py (Week 2). Each is a plain function over
+# InfluxDB / sites.yaml / anomalies.json -- no LLM involved anywhere in scoring.
+#
+#   peak_in_window(site_id, window)          -> {value_kw, at_utc}
+#   min_in_window(site_id, window)           -> {value_kw, at_utc}
+#   mean_in_window(site_id, window)          -> {value_kw}
+#   total_energy_in_window(site_id, window)  -> {value_kwh}
+#   rank_sites_in_window(window, metric, category=null) -> [site_id, ...]
+#   compare_windows(site_id, window_a, window_b, metric) -> {delta_pct}
+#   anomalies_in_window(window, site_id=null, type=null) -> [anomaly_id, ...]
+#   anomaly_detail(anomaly_id)               -> full record from anomalies.json
+#   site_attribute(site_id, attribute)       -> value from sites.yaml
+#   sites_by_category(category)              -> [site_id, ...]
+
+questions:
+
+  # =========================================================================
+  # (a) DIRECT TIME-SERIES LOOKUPS
+  # =========================================================================
+
+  - id: ts-001
+    category: timeseries_lookup
+    question: "What was Nordwerk Kassel's peak power draw last Tuesday, and what time did it happen?"
+    answer_shape: scalar_kw_and_timestamp
+    verify:
+      fn: peak_in_window
+      args:
+        site_id: nordwerk-kassel
+        window: {relative: last_tuesday}
+    tolerance:
+      numeric_rel_tol: 0.02
+      timestamp_minutes: 30
+    expects_tools: [get_timeseries]
+    difficulty: easy
+    status: ready
+    why: >-
+      The base case, and the one most likely to expose a timezone bug. "Last
+      Tuesday" must resolve to a Berlin-local calendar day; if the agent
+      queries a UTC day boundary the peak can land in the wrong 24 hours
+      entirely. Also checks that the agent reports *when*, not just how much.
+
+  - id: ts-002
+    category: timeseries_lookup
+    question: "How many kilowatt-hours did the Südpark office in Munich use last month?"
+    answer_shape: scalar_kwh
+    verify:
+      fn: total_energy_in_window
+      args:
+        site_id: sudpark-muenchen
+        window: {relative: last_calendar_month}
+    expects_tools: [aggregate]
+    difficulty: medium
+    status: ready
+    why: >-
+      Tests a unit conversion the agent must not fumble: the meters record power
+      (kW) at 15-minute intervals, and energy (kWh) is the integral, so each
+      sample contributes value/4. Summing the kW column and calling it kWh gives
+      an answer 4x too large -- a plausible-looking failure that a string-match
+      grader would never catch. Also tests "last month" meaning the last
+      complete calendar month, not the trailing 30 days.
+
+  # =========================================================================
+  # (b) ANOMALY QUESTIONS
+  # =========================================================================
+
+  - id: an-001
+    category: anomaly
+    question: "Which of our sites behaved unusually in the last 30 days, and when?"
+    answer_shape: site_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        window: {relative: last_30_days}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 60
+    expects_tools: [list_sites, detect_anomalies]
+    difficulty: medium
+    status: ready
+    why: >-
+      Open-ended and unscoped: the agent has to sweep every site rather than
+      being told which one to look at. Scored on set equality, so both misses
+      and false positives cost. German public holidays are the trap here -- they
+      look like drop-offs and are not in the ground truth.
+
+  - id: an-002
+    category: anomaly
+    question: "Has anything been wrong with the Bremen cold store's consumption over the last three months?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: frostlager-bremen
+        window: {relative: last_quarter}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 7200      # drift-tolerant; see tolerances above
+    expects_tools: [detect_anomalies]
+    difficulty: hard
+    status: ready
+    why: >-
+      Site-scoped and phrased colloquially -- "the Bremen cold store" is not the
+      site_id, so the agent has to resolve the name first. The long window is
+      chosen to admit drift anomalies, which is where naive threshold detection
+      fails: a slow baseline creep never crosses a fixed limit on any single
+      reading. Timing is scored loosely for exactly that reason.
+
+  # =========================================================================
+  # (c) QUESTIONS NEEDING RETRIEVED CONTEXT
+  # =========================================================================
+
+  - id: rag-001
+    category: contextual_rag
+    question: "Which of our cold storage sites has the larger floor area, and what was its average load last week?"
+    answer_shape: site_id_and_scalar_kw
+    verify:
+      fn: site_attribute
+      args:
+        site_id: frostlager-bremen
+        attribute: floor_area_m2
+      then:
+        fn: mean_in_window
+        args:
+          site_id: frostlager-bremen
+          window: {relative: last_7_days}
+    expects_tools: [list_sites, get_timeseries]
+    difficulty: medium
+    status: ready
+    why: >-
+      The simplest genuine join: metadata narrows the candidate set, then the
+      time series answers the question. Neither store alone is sufficient. The
+      `then` chaining is what makes multi-hop questions expressible without
+      hand-writing an answer.
+
+  - id: rag-002
+    category: contextual_rag
+    question: "Frostlager Bremen drew far more power than usual for a few days earlier this year. What caused it?"
+    answer_shape: anomaly_reference_and_causal_explanation
+    verify:
+      fn: anomaly_detail
+      args:
+        anomaly_id: TODO-bind-after-injection
+    expects_tools: [detect_anomalies, search_docs]
+    difficulty: hard
+    status: needs_anomaly_binding
+    why: >-
+      This is the question the whole project exists to answer, and the only one
+      that cannot be answered by either store alone. The agent must find the
+      excursion in InfluxDB, then retrieve the maintenance note in pgvector that
+      explains it, and connect them. A pure-SQL system gets the "what" and never
+      the "why"; a pure-RAG system finds a note with no idea whether it matters.
+    binding_note: >-
+      anomaly_id is a placeholder until anomalies.py has run. After the first
+      build, open data/generated/anomalies.json, pick a frostlager-bremen spike,
+      paste its id here, and adjust the question wording to match its actual
+      date. Grading the explanation is a judgement call, so this one is scored
+      by an LLM-as-judge against the `cause` string in the manifest -- the only
+      question type in the suite that is not scored deterministically.
+
+# ===========================================================================
+# TO WRITE: ~20 MORE
+# ===========================================================================
+# Target 24-30 total, roughly 10 / 8 / 8 across the three categories.
+#
+# The six above are worked examples of the *schema*, not a representative
+# sample. Deliberate gaps left for you, because these are the choices that
+# decide whether the suite measures anything:
+#
+#   - Comparison across sites: "which site used the most last week" ->
+#     rank_sites_in_window. Tests aggregation over the full fleet.
+#   - Comparison across time: "is Kassel using more than the same week last
+#     year" -> compare_windows. Tests two queries plus a delta.
+#   - Category filters: "how much did our retail sites use in total in June".
+#   - Questions with NO valid answer: "what was site X's peak in 2019" (before
+#     the data window) or a site that does not exist. An agent that hallucinates
+#     a confident number here is dangerous, and nothing else in the suite
+#     catches it. Include at least two, with answer_shape: refusal.
+#   - Ambiguous questions: "how much did the Munich site use" when only one
+#     Munich site exists (fine) versus "the cold store" when there are two
+#     (should ask a clarifying question, not guess).
+#   - A question spanning a DST boundary -- late March or late October. There is
+#     a 23-hour day and a 25-hour day in every year of the window, and daily
+#     totals across them are where timezone handling quietly breaks.
+#   - At least one question per anomaly type, including a subtle drift the
+#     agent should find and an obvious spike it must not miss.
+#   - A holiday question: "why was consumption so low on 3 October" (German
+#     Unity Day). Expected behaviour is to explain it as a holiday, NOT to
+#     report an anomaly.
+#
+# Two habits worth keeping:
+#   1. Phrase questions the way a facility manager would, not the way the schema
+#      is shaped. "The Bremen cold store", not "site_id frostlager-bremen".
+#      Entity resolution is part of what is being tested.
+#   2. Fill in `why` before `verify`. If the sentence does not come easily, the
+#      question is probably testing the same thing as an earlier one.
