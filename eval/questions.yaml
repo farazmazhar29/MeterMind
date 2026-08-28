@@ -30,16 +30,21 @@
 #   expects_tools tools the agent should call. Scored separately from the answer:
 #                 a right answer reached by the wrong route is worth knowing about
 #   difficulty    easy | medium | hard
-#   status        ready | blocked_on_corpus | needs_anomaly_binding
+#   status        ready | blocked_on_corpus
 #   why           what this question is actually testing. Not decoration -- if it
 #                 cannot be stated, the question is probably redundant
 #
 # WINDOW SPEC
-#   {relative: last_tuesday}        resolved against as_of, in `timezone`
+#   {relative: last_tuesday}                resolved against as_of, in `timezone`
 #   {relative: last_7_days}
-#   {relative: last_calendar_month}
 #   {relative: last_30_days}
-#   {relative: last_quarter}
+#   {relative: last_45_days}
+#   {relative: last_calendar_month}         last COMPLETE calendar month
+#   {relative: last_quarter}                trailing 3 months
+#   {relative: full_history}                the entire loaded window
+#   {relative: last_30_days, shift_days: 364}   same period a year earlier.
+#       364 = 52 weeks, so weekdays align exactly. Using 365 would compare a
+#       Monday against a Sunday and make every year-over-year answer wrong.
 #   {start: 2026-06-01, end: 2026-06-30}    absolute local dates, end inclusive
 #
 # All windows are resolved in Europe/Berlin and converted to UTC before
@@ -74,18 +79,27 @@ tolerances:
 # VERIFIER REGISTRY
 # ---------------------------------------------------------------------------
 # Implemented in eval/verifiers.py (Week 2). Each is a plain function over
-# InfluxDB / sites.yaml / anomalies.json -- no LLM involved anywhere in scoring.
+# InfluxDB / sites.yaml / anomalies.json -- no LLM involved anywhere in scoring,
+# with the single exception noted on rag-002.
 #
-#   peak_in_window(site_id, window)          -> {value_kw, at_utc}
-#   min_in_window(site_id, window)           -> {value_kw, at_utc}
-#   mean_in_window(site_id, window)          -> {value_kw}
-#   total_energy_in_window(site_id, window)  -> {value_kwh}
+#   peak_in_window(site_id, window)             -> {value_kw, at_utc}
+#   min_in_window(site_id, window)              -> {value_kw, at_utc}
+#   mean_in_window(site_id, window)             -> {value_kw}
+#   total_energy_in_window(site_id, window)     -> {value_kwh}
+#   total_energy_by_category(category, window)  -> {value_kwh, site_ids}
 #   rank_sites_in_window(window, metric, category=null) -> [site_id, ...]
 #   compare_windows(site_id, window_a, window_b, metric) -> {delta_pct}
-#   anomalies_in_window(window, site_id=null, type=null) -> [anomaly_id, ...]
-#   anomaly_detail(anomaly_id)               -> full record from anomalies.json
-#   site_attribute(site_id, attribute)       -> value from sites.yaml
-#   sites_by_category(category)              -> [site_id, ...]
+#   anomalies_in_window(window, site_id=null, category=null, type=null)
+#                                               -> [anomaly_id, ...]
+#   anomaly_detail(anomaly_id)                  -> full record from anomalies.json
+#   site_attribute(site_id, attribute)          -> value from sites.yaml
+#   sites_by_category(category)                 -> [site_id, ...]
+#
+# Behavioural expectations -- these assert what the agent must NOT do:
+#   expect_refusal(reason)                      -> passes only if the agent
+#                                                  declines and names the reason
+#   expect_clarification(candidates)            -> passes only if the agent asks
+#                                                  which entity was meant
 
 questions:
 
@@ -134,6 +148,196 @@ questions:
       grader would never catch. Also tests "last month" meaning the last
       complete calendar month, not the trailing 30 days.
 
+  - id: ts-003
+    category: timeseries_lookup
+    question: "Which of our sites used the most electricity last week?"
+    answer_shape: site_ranking
+    verify:
+      fn: rank_sites_in_window
+      args:
+        window: {relative: last_7_days}
+        metric: total_energy
+    expects_tools: [list_sites, aggregate]
+    difficulty: medium
+    status: ready
+    why: >-
+      Forces a fleet-wide sweep rather than a single lookup: the agent has to
+      discover the eight sites, query each, and rank. The common failure is
+      answering for one site and asserting it is the largest. Note the answer is
+      not simply the site with the biggest nameplate -- a cold store runs near
+      capacity around the clock while a bigger factory idles all weekend.
+
+  - id: ts-004
+    category: timeseries_lookup
+    question: "Is Nordwerk Kassel using more electricity than it was this time last year?"
+    answer_shape: comparison_with_delta
+    verify:
+      fn: compare_windows
+      args:
+        site_id: nordwerk-kassel
+        window_a: {relative: last_30_days}
+        window_b: {relative: last_30_days, shift_days: 364}
+        metric: total_energy
+    expects_tools: [aggregate]
+    difficulty: hard
+    status: ready
+    why: >-
+      Two queries plus a delta, and the comparison window is the trap. "This
+      time last year" has to be 364 days back, not 365: shifting by a calendar
+      year moves the period by one weekday, so a 30-day window would pick up a
+      different number of weekends and the comparison would be meaningless for
+      a site whose weekend load is 6% of its weekday load.
+
+  - id: ts-005
+    category: timeseries_lookup
+    question: "How much energy did our retail sites use altogether in June 2026?"
+    answer_shape: scalar_kwh
+    verify:
+      fn: total_energy_by_category
+      args:
+        category: retail
+        window: {start: 2026-06-01, end: 2026-06-30}
+    expects_tools: [list_sites, aggregate]
+    difficulty: medium
+    status: ready
+    why: >-
+      Requires resolving a category to its member sites before any time-series
+      query happens, then summing across them. Tests that site metadata and the
+      series are used in the right order.
+
+  - id: ts-006
+    category: timeseries_lookup
+    question: "What is the lowest load Frostlager Bremen has drawn in the last 90 days, and when?"
+    answer_shape: scalar_kw_and_timestamp
+    verify:
+      fn: min_in_window
+      args:
+        site_id: frostlager-bremen
+        window: {relative: last_quarter}
+    tolerance:
+      numeric_rel_tol: 0.02
+      timestamp_minutes: 30
+    expects_tools: [get_timeseries]
+    difficulty: easy
+    status: ready
+    why: >-
+      The mirror of ts-001, and a quiet trap. A plausible-sounding answer is
+      "it falls to its 320 kW base load overnight" -- reading the nameplate
+      figure out of the site register instead of the series. It never gets
+      close: the compressors never stop, so the true minimum sits far above
+      base. Answering from metadata rather than from data fails here.
+
+  - id: ts-007
+    category: timeseries_lookup
+    question: "How many kilowatt-hours did the Südpark office use on Sunday 26 October 2025?"
+    answer_shape: scalar_kwh
+    verify:
+      fn: total_energy_in_window
+      args:
+        site_id: sudpark-muenchen
+        window: {start: 2025-10-26, end: 2025-10-26}
+    expects_tools: [aggregate]
+    difficulty: hard
+    status: ready
+    why: >-
+      A 25-hour day. Clocks go back in Germany on this date, so the local day
+      contains 100 fifteen-minute intervals, not 96. An implementation that
+      computes a day as "start + 24 hours" silently drops an hour of energy.
+      Nothing errors; the number is just quietly ~4% low.
+
+  - id: ts-008
+    category: timeseries_lookup
+    question: "How many kilowatt-hours did Marktplatz Köln use on Sunday 29 March 2026?"
+    answer_shape: scalar_kwh
+    verify:
+      fn: total_energy_in_window
+      args:
+        site_id: marktplatz-koeln
+        window: {start: 2026-03-29, end: 2026-03-29}
+    expects_tools: [aggregate]
+    difficulty: hard
+    status: ready
+    why: >-
+      The opposite of ts-007: a 23-hour day, 92 intervals. Paired deliberately,
+      because a hardcoded 96-interval assumption fails one in each direction and
+      an average over both would hide it. Also a Sunday at a retail site, which
+      is closed under German shop-opening law -- so the expected figure is the
+      refrigeration floor, not zero and not a trading day.
+
+  - id: ts-009
+    category: timeseries_lookup
+    question: "What was Nordwerk Kassel's peak load in 2019?"
+    answer_shape: refusal
+    verify:
+      fn: expect_refusal
+      args:
+        reason: outside_data_window
+    expects_tools: [list_sites]
+    difficulty: hard
+    status: ready
+    why: >-
+      The single most dangerous question in the suite, and the reason it is here
+      rather than as an afterthought. Site data starts in 2025, so there is no
+      answer -- but the InfluxDB bucket DOES contain 2019 data, in the grid_load
+      measurement, because the real OPSD series is loaded at its true
+      timestamps. An agent that filters loosely will find a real, confident,
+      completely wrong number in megawatts of German national demand. Correct
+      behaviour is to say the site has no data that far back.
+
+  - id: ts-010
+    category: timeseries_lookup
+    question: "What was the Stuttgart plant's peak usage last Tuesday?"
+    answer_shape: refusal
+    verify:
+      fn: expect_refusal
+      args:
+        reason: unknown_site
+    expects_tools: [list_sites]
+    difficulty: medium
+    status: ready
+    why: >-
+      There is no Stuttgart site. The failure mode is quietly substituting the
+      nearest plausible match -- Munich is the closest city, Kassel is the other
+      plant -- and answering as though the question had been about that. The
+      agent must say it has no such site rather than guess.
+
+  - id: ts-011
+    category: timeseries_lookup
+    question: "How much did the cold store use last week?"
+    answer_shape: clarification
+    verify:
+      fn: expect_clarification
+      args:
+        candidates: [frostlager-bremen, kuehlhaus-duisburg]
+    expects_tools: [list_sites]
+    difficulty: hard
+    status: ready
+    why: >-
+      Two cold stores exist, so the question has no single answer. Guessing is
+      wrong even when the guess is defensible ("the bigger one"), because the
+      user is never told a choice was made on their behalf. Paired with ts-012,
+      which checks the agent does not then ask for clarification about
+      everything.
+
+  - id: ts-012
+    category: timeseries_lookup
+    question: "How much did the Munich site use last week?"
+    answer_shape: scalar_kwh
+    verify:
+      fn: total_energy_in_window
+      args:
+        site_id: sudpark-muenchen
+        window: {relative: last_7_days}
+    expects_tools: [list_sites, aggregate]
+    difficulty: medium
+    status: ready
+    why: >-
+      The control for ts-011. Phrased just as loosely, but only one site is in
+      Munich, so the correct behaviour is to resolve it and answer. An agent
+      tuned to pass ts-011 by asking whenever a name is not an exact site_id
+      will fail here. The pair measures calibration, which neither question
+      does alone.
+
   # =========================================================================
   # (b) ANOMALY QUESTIONS
   # =========================================================================
@@ -160,12 +364,12 @@ questions:
 
   - id: an-002
     category: anomaly
-    question: "Has anything been wrong with the Bremen cold store's consumption over the last three months?"
+    question: "Has anything been wrong with the Munich office's consumption over the last three months?"
     answer_shape: anomaly_list_with_timestamps
     verify:
       fn: anomalies_in_window
       args:
-        site_id: frostlager-bremen
+        site_id: sudpark-muenchen
         window: {relative: last_quarter}
     tolerance:
       set_match: exact
@@ -174,11 +378,171 @@ questions:
     difficulty: hard
     status: ready
     why: >-
-      Site-scoped and phrased colloquially -- "the Bremen cold store" is not the
-      site_id, so the agent has to resolve the name first. The long window is
-      chosen to admit drift anomalies, which is where naive threshold detection
-      fails: a slow baseline creep never crosses a fixed limit on any single
-      reading. Timing is scored loosely for exactly that reason.
+      Site-scoped and phrased colloquially -- "the Munich office" is not the
+      site_id, so the agent has to resolve the name first. The long window
+      admits a drift, which is where naive threshold detection fails: a slow
+      baseline creep never crosses a fixed limit on any single reading. Timing
+      is scored loosely for exactly that reason.
+
+  - id: an-003
+    category: anomaly
+    question: "Did anything unusual happen at the Bremen cold store in the middle of November 2025?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: frostlager-bremen
+        window: {start: 2025-11-08, end: 2025-11-20}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 60
+    expects_tools: [detect_anomalies]
+    difficulty: easy
+    status: ready
+    why: >-
+      The floor test. A short, unmissable spike at nearly three times normal
+      load. If this one is missed the detector is simply broken, and every other
+      anomaly score in the suite should be read as noise. Every eval set needs a
+      question that is supposed to be easy.
+
+  - id: an-004
+    category: anomaly
+    question: "The Bremen cold store had two separate problems in late 2025. What were they and when?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: frostlager-bremen
+        window: {start: 2025-11-01, end: 2025-12-31}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 60
+    expects_tools: [detect_anomalies]
+    difficulty: medium
+    status: ready
+    why: >-
+      Two anomalies at one site, weeks apart and in opposite directions -- a
+      large spike, then a large drop-off. The failure mode is stopping at the
+      first finding and reporting it as though it were the whole answer. The
+      question states there are two, so an agent that returns one has visibly
+      not finished the job.
+
+  - id: an-005
+    category: anomaly
+    question: "Has the Duisburg cold store been drifting out of spec at any point?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: kuehlhaus-duisburg
+        type: drift
+        window: {relative: full_history}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 7200
+    expects_tools: [detect_anomalies]
+    difficulty: hard
+    status: ready
+    why: >-
+      The hardest detection in the suite and the one worth defending in an
+      interview. A 9% creep developing over a month never trips a fixed
+      threshold on any single reading, and it is smaller than the site's own
+      ordinary week-to-week variation. Finding it requires comparing a trend
+      against a baseline, not testing points against a limit. This question is
+      the difference between a real detector and a `WHERE value > x`.
+
+  - id: an-006
+    category: anomaly
+    question: "Give me a rundown of anything odd across the fleet in November and December 2025."
+    answer_shape: site_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        window: {start: 2025-11-01, end: 2025-12-31}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 7200
+    expects_tools: [list_sites, detect_anomalies]
+    difficulty: hard
+    status: ready
+    why: >-
+      The only question whose answer spans all three anomaly types at once -- a
+      spike, a drop-off and a drift, across two sites, with two of them at the
+      same site. Detecting all three needs more than one technique: the spike
+      falls out of any threshold, the drift only appears against a trend
+      baseline. An agent with a single detection strategy will return a partial
+      answer that looks complete.
+
+      Deliberately an absolute window rather than a relative one. A trailing
+      "last 45 days" resolves to the same three anomalies as an-001, so it would
+      have measured nothing an-001 does not already measure.
+
+  - id: an-007
+    category: anomaly
+    question: "Consumption at Marktplatz Köln was much lower than usual on Friday 3 October 2025. Was that a fault?"
+    answer_shape: holiday_explanation
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: marktplatz-koeln
+        window: {start: 2025-10-03, end: 2025-10-03}
+    tolerance:
+      set_match: exact
+    expects_tools: [detect_anomalies]
+    difficulty: hard
+    status: ready
+    why: >-
+      The expected anomaly set is EMPTY. 3 October is Tag der Deutschen
+      Einheit, a nationwide public holiday falling on a weekday that year, and
+      the store was shut. The observation in the question is true and the
+      conclusion it invites is wrong. An agent that agrees with the user's
+      framing and reports a fault has produced a false positive on data that is
+      behaving exactly as designed -- and the user asked a leading question,
+      which makes it harder to resist.
+
+  - id: an-008
+    category: anomaly
+    question: "Have there been any sustained drop-offs at our retail sites?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        category: retail
+        type: dropoff
+        window: {relative: full_history}
+    tolerance:
+      set_match: exact
+      timestamp_minutes: 60
+    expects_tools: [list_sites, detect_anomalies]
+    difficulty: medium
+    status: ready
+    why: >-
+      Filters on category and anomaly type at once, so the agent must resolve
+      "retail sites" to two site_ids before searching, then exclude spikes at
+      those same sites. Returning the retail spike alongside the drop-off is the
+      natural failure.
+
+  - id: an-009
+    category: anomaly
+    question: "Was there anything wrong with Hansawerk Hamburg in February 2026?"
+    answer_shape: anomaly_list_with_timestamps
+    verify:
+      fn: anomalies_in_window
+      args:
+        site_id: hansawerk-hamburg
+        window: {start: 2026-02-01, end: 2026-02-28}
+    tolerance:
+      set_match: exact
+    expects_tools: [detect_anomalies]
+    difficulty: medium
+    status: ready
+    why: >-
+      The expected answer is "nothing". This site has three anomalies, none in
+      February, so the agent cannot pass by pattern-matching the site name. The
+      month still contains ordinary business variation from the generator's
+      autocorrelated activity term, which gives a determined agent something to
+      point at. An anomaly detector that always finds something is worthless,
+      and only a question like this exposes it.
 
   # =========================================================================
   # (c) QUESTIONS NEEDING RETRIEVED CONTEXT
@@ -217,7 +581,7 @@ questions:
         anomaly_id: anom-012
     expects_tools: [detect_anomalies, search_docs]
     difficulty: hard
-    status: ready
+    status: blocked_on_corpus
     why: >-
       This is the question the whole project exists to answer, and the only one
       that cannot be answered by either store alone. The agent must find the
@@ -234,37 +598,160 @@ questions:
       different seed WILL invalidate this binding. Re-check it after any change
       to synth.py or anomalies.py.
 
+  - id: rag-003
+    category: contextual_rag
+    question: "Which site has the highest peak rating, and did it actually get anywhere near it last month?"
+    answer_shape: site_id_and_scalar_kw
+    verify:
+      fn: site_attribute
+      args:
+        site_id: nordwerk-kassel
+        attribute: peak_load_kw
+      then:
+        fn: peak_in_window
+        args:
+          site_id: nordwerk-kassel
+          window: {relative: last_calendar_month}
+    expects_tools: [list_sites, get_timeseries]
+    difficulty: medium
+    status: ready
+    why: >-
+      Two hops in the opposite order to rag-001: rank on a register attribute
+      first, then measure. The second half is the interesting part, because it
+      asks the agent to compare a nameplate rating against observed reality --
+      a question that is meaningless without both stores, and one a facility
+      manager actually asks before sizing an upgrade.
+
+  - id: rag-004
+    category: contextual_rag
+    question: "Which of our sites are closed on Sundays, and what do they still draw while closed?"
+    answer_shape: site_list_with_explanation
+    verify:
+      fn: sites_by_category
+      args:
+        category: retail
+      then:
+        fn: mean_in_window
+        args:
+          site_id: marktplatz-koeln
+          window: {relative: last_7_days}
+    expects_tools: [search_docs, get_timeseries]
+    difficulty: hard
+    status: blocked_on_corpus
+    why: >-
+      The fact that retail closes on Sundays lives in prose -- German
+      shop-opening law, recorded in the site notes -- not in any column. No SQL
+      query over the site register surfaces it, so this is a case where
+      retrieval is genuinely load-bearing rather than decorative. The second
+      half then punctures the obvious assumption: the answer is not zero,
+      because the refrigerated cases run regardless, and a factory's Sunday
+      looks nothing like a supermarket's.
+
+  - id: rag-005
+    category: contextual_rag
+    question: "The Dresden campus has been using more and more power. Do we know why?"
+    answer_shape: anomaly_reference_and_causal_explanation
+    verify:
+      fn: anomaly_detail
+      args:
+        anomaly_id: anom-009
+    expects_tools: [detect_anomalies, search_docs]
+    difficulty: hard
+    status: blocked_on_corpus
+    why: >-
+      The drift counterpart to rag-002. Harder in both halves: there is no sharp
+      event to locate, so detection needs a trend comparison, and the retrieved
+      explanation is gradual too -- server room hardware added over time without
+      a matching cooling upgrade. Also the only question where the cause is a
+      slow organisational fact rather than a discrete failure, which is a
+      different retrieval target.
+
+  - id: rag-006
+    category: contextual_rag
+    question: "Both cold stores had problems last year. Were they the same kind of problem?"
+    answer_shape: anomaly_reference_and_causal_explanation
+    verify:
+      fn: anomalies_in_window
+      args:
+        category: cold_storage
+        window: {relative: full_history}
+    tolerance:
+      set_match: exact
+    expects_tools: [detect_anomalies, search_docs]
+    difficulty: hard
+    status: blocked_on_corpus
+    why: >-
+      The retrieval-precision test. Both sites are refrigerated, so their
+      maintenance notes share almost all their vocabulary -- chillers,
+      compressors, condensers, temperature. Semantic similarity alone will
+      happily return Bremen's chiller note when asked about Duisburg. Passing
+      requires filtering retrieval by site rather than trusting the ranking,
+      which is the single most common way a working RAG demo gives a confidently
+      wrong answer.
+
+  - id: rag-007
+    category: contextual_rag
+    question: "What did the maintenance team say about the transformer replacement at Kassel?"
+    answer_shape: refusal
+    verify:
+      fn: expect_refusal
+      args:
+        reason: no_supporting_document
+    expects_tools: [search_docs]
+    difficulty: hard
+    status: blocked_on_corpus
+    why: >-
+      No such document exists. This is RAG's characteristic failure mode and it
+      has no equivalent in the time-series half of the suite: vector search
+      always returns its k nearest neighbours, ranked by similarity, and never
+      returns nothing. The agent will be handed a real, plausible, irrelevant
+      maintenance note about Kassel and must recognise that it does not answer
+      the question, rather than paraphrasing it into a confident fabrication.
+      An agent that scores well everywhere else and fails here is exactly the
+      kind that is dangerous in production.
+
 # ===========================================================================
-# TO WRITE: ~20 MORE
+# COVERAGE
 # ===========================================================================
-# Target 24-30 total, roughly 10 / 8 / 8 across the three categories.
+# 28 questions: 12 timeseries_lookup, 9 anomaly, 7 contextual_rag.
+# Difficulty: 3 easy, 11 medium, 14 hard.
 #
-# The six above are worked examples of the *schema*, not a representative
-# sample. Deliberate gaps left for you, because these are the choices that
-# decide whether the suite measures anything:
+# Deliberate structure, so gaps are visible:
 #
-#   - Comparison across sites: "which site used the most last week" ->
-#     rank_sites_in_window. Tests aggregation over the full fleet.
-#   - Comparison across time: "is Kassel using more than the same week last
-#     year" -> compare_windows. Tests two queries plus a delta.
-#   - Category filters: "how much did our retail sites use in total in June".
-#   - Questions with NO valid answer: "what was site X's peak in 2019" (before
-#     the data window) or a site that does not exist. An agent that hallucinates
-#     a confident number here is dangerous, and nothing else in the suite
-#     catches it. Include at least two, with answer_shape: refusal.
-#   - Ambiguous questions: "how much did the Munich site use" when only one
-#     Munich site exists (fine) versus "the cold store" when there are two
-#     (should ask a clarifying question, not guess).
-#   - A question spanning a DST boundary -- late March or late October. There is
-#     a 23-hour day and a 25-hour day in every year of the window, and daily
-#     totals across them are where timezone handling quietly breaks.
-#   - At least one question per anomaly type, including a subtle drift the
-#     agent should find and an obvious spike it must not miss.
-#   - A holiday question: "why was consumption so low on 3 October" (German
-#     Unity Day). Expected behaviour is to explain it as a holiday, NOT to
-#     report an anomaly.
+#   Behavioural (agent must NOT answer)     ts-009 ts-010 ts-011 rag-007
+#   Correct answer is "nothing"             an-007 an-009
+#   Calibration pair                        ts-011 / ts-012
+#   DST pair (23h and 25h days)             ts-007 / ts-008
+#   One per anomaly type                    spike an-003, dropoff an-008,
+#                                           drift an-005
+#   All three types in one answer           an-006
+#   Easy floor / hard ceiling               an-003 / an-005
 #
-# Two habits worth keeping:
+# an-007 and an-009 share an expected answer (the empty set). That is not
+# redundancy: one tests resisting a leading question about a public holiday, the
+# other tests not inventing a finding in a quiet month. Same answer, different
+# failure.
+#
+# Site coverage: all eight sites are exercised. Six are named directly in a
+# question; techcampus-dresden and stadtmarkt-leipzig are reached through
+# anomaly bindings (rag-005 and an-008 respectively) and through the fleet-wide
+# sweeps. If you add questions, those two are the thinnest.
+#
+# Anomaly coverage: 9 of the 17 injected anomalies are reachable from some
+# question. That is intentional -- the rest are there so detection has to
+# discriminate rather than return everything it finds. Do not "improve" this by
+# writing a question per anomaly; a suite where every anomaly is asked about is
+# a suite that cannot measure false positives.
+#
+# Five questions are marked blocked_on_corpus: they need the Week 2 document
+# corpus before they can be scored. The other 23 are runnable as soon as the
+# verifiers and the agent exist.
+#
+# Every anomaly question in this file has been resolved against
+# data/generated/anomalies.json, and each returns the set its `why` claims.
+# Re-run that check after any rebuild -- anomaly ids are positional.
+#
+# When adding more, two habits are worth keeping:
 #   1. Phrase questions the way a facility manager would, not the way the schema
 #      is shaped. "The Bremen cold store", not "site_id frostlager-bremen".
 #      Entity resolution is part of what is being tested.
