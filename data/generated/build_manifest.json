@@ -1,0 +1,34 @@
+{
+  "built_at_utc": "2026-08-28T14:27:11.333281+00:00",
+  "seed": 20260814,
+  "interval_minutes": 15,
+  "history_days": 548,
+  "window_start_utc": "2025-02-26T14:15:00+00:00",
+  "window_end_utc": "2026-08-28T14:15:00+00:00",
+  "time_offset_days": 2184,
+  "real_data": {
+    "source": "Open Power System Data, time_series package",
+    "version": "2020-10-06",
+    "url": "https://data.open-power-system-data.org/time_series/2020-10-06/time_series_60min_singleindex.csv",
+    "column": "DE_load_actual_entsoe_transparency",
+    "coverage_start_utc": "2015-01-01T00:00:00+00:00",
+    "coverage_end_utc": "2020-09-30T23:00:00+00:00",
+    "measurement": "grid_load",
+    "note": "Loaded at its true timestamps. The offset above applies only to the synthetic sites."
+  },
+  "synthetic": {
+    "measurement": "site_consumption",
+    "sites": [
+      "nordwerk-kassel",
+      "hansawerk-hamburg",
+      "sudpark-muenchen",
+      "techcampus-dresden",
+      "frostlager-bremen",
+      "kuehlhaus-duisburg",
+      "marktplatz-koeln",
+      "stadtmarkt-leipzig"
+    ],
+    "generated": true,
+    "anomaly_count": 17
+  }
+}

@@ -43,7 +43,12 @@ services:
     container_name: metermind-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      # Host port comes from POSTGRES_PORT so the container and the Python
+      # config can never disagree. Override it in .env if something already
+      # owns 5432 on your machine -- a native Postgres install is the usual
+      # culprit, and it wins the bind, so connections silently reach the wrong
+      # server and fail with a confusing authentication error.
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

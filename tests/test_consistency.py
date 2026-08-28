@@ -73,7 +73,9 @@ class TestComposeAndEnv:
     def test_all_compose_variables_are_defined(self):
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         declared = set(dotenv_values(PROJECT_ROOT / ".env.example"))
-        referenced = set(re.findall(r"\$\{(\w+)\}", compose))
+        # Matches ${VAR} and ${VAR:-default}. Without the optional default
+        # group, a variable written with a fallback silently escapes this check.
+        referenced = set(re.findall(r"\$\{(\w+)(?::-[^}]*)?\}", compose))
         assert not (referenced - declared), f"undefined in .env.example: {referenced - declared}"
 
     def test_compose_is_valid_yaml_with_both_services(self):

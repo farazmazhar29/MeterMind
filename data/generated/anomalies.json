@@ -1,0 +1,189 @@
+[
+  {
+    "anomaly_id": "anom-001",
+    "site_id": "nordwerk-kassel",
+    "type": "spike",
+    "start_utc": "2026-05-18T12:58:10+00:00",
+    "end_utc": "2026-05-21T04:58:10+00:00",
+    "peak_deviation_pct": 35.1,
+    "detectability": "subtle",
+    "cause": "Powder coating oven 3 was recommissioned after a burner replacement and held at full output overnight while the new control loop was tuned.",
+    "cause_doc_type": "commissioning"
+  },
+  {
+    "anomaly_id": "anom-002",
+    "site_id": "nordwerk-kassel",
+    "type": "drift",
+    "start_utc": "2025-10-09T04:56:53+00:00",
+    "end_utc": "2025-10-25T08:56:53+00:00",
+    "peak_deviation_pct": 12.5,
+    "detectability": "subtle",
+    "cause": "Press hydraulics were running against a partially blocked return filter, so pump load climbed steadily until the filter was changed at the next service.",
+    "cause_doc_type": "maintenance_log"
+  },
+  {
+    "anomaly_id": "anom-003",
+    "site_id": "nordwerk-kassel",
+    "type": "dropoff",
+    "start_utc": "2025-05-15T02:27:19+00:00",
+    "end_utc": "2025-05-27T03:27:19+00:00",
+    "peak_deviation_pct": -27.5,
+    "detectability": "subtle",
+    "cause": "The stamping line was down for a die change that overran waiting on a replacement part.",
+    "cause_doc_type": "maintenance_log"
+  },
+  {
+    "anomaly_id": "anom-004",
+    "site_id": "hansawerk-hamburg",
+    "type": "dropoff",
+    "start_utc": "2025-06-06T20:12:10+00:00",
+    "end_utc": "2025-06-15T19:12:10+00:00",
+    "peak_deviation_pct": -21.6,
+    "detectability": "subtle",
+    "cause": "The ready-meal lines were stopped for the annual deep clean and hygiene audit; only process refrigeration stayed live.",
+    "cause_doc_type": "shift_notice"
+  },
+  {
+    "anomaly_id": "anom-005",
+    "site_id": "hansawerk-hamburg",
+    "type": "spike",
+    "start_utc": "2025-07-08T13:17:21+00:00",
+    "end_utc": "2025-07-10T02:17:21+00:00",
+    "peak_deviation_pct": 43.7,
+    "detectability": "subtle",
+    "cause": "The blast chiller on line 2 was left in continuous run after a controller reset, so process refrigeration never cycled down between batches.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-006",
+    "site_id": "hansawerk-hamburg",
+    "type": "drift",
+    "start_utc": "2026-03-22T12:14:32+00:00",
+    "end_utc": "2026-04-09T06:38:32+00:00",
+    "peak_deviation_pct": 32.5,
+    "detectability": "obvious",
+    "cause": "A third night shift was phased in as the pre-Christmas order book built up.",
+    "cause_doc_type": "shift_notice"
+  },
+  {
+    "anomaly_id": "anom-007",
+    "site_id": "sudpark-muenchen",
+    "type": "drift",
+    "start_utc": "2026-07-04T08:39:02+00:00",
+    "end_utc": "2026-08-05T22:15:02+00:00",
+    "peak_deviation_pct": 32.5,
+    "detectability": "obvious",
+    "cause": "Supply air filters loaded progressively between quarterly service visits, raising fan power until they were replaced.",
+    "cause_doc_type": "maintenance_log"
+  },
+  {
+    "anomaly_id": "anom-008",
+    "site_id": "sudpark-muenchen",
+    "type": "spike",
+    "start_utc": "2025-03-29T14:56:16+00:00",
+    "end_utc": "2025-03-31T04:56:16+00:00",
+    "peak_deviation_pct": 96.5,
+    "detectability": "obvious",
+    "cause": "A building management system fault left the chillers running overnight and through the weekend before anyone noticed.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-009",
+    "site_id": "techcampus-dresden",
+    "type": "drift",
+    "start_utc": "2025-11-17T09:26:27+00:00",
+    "end_utc": "2025-12-07T15:02:27+00:00",
+    "peak_deviation_pct": 21.0,
+    "detectability": "obvious",
+    "cause": "Server room load grew steadily as test hardware was added without a corresponding cooling upgrade.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-010",
+    "site_id": "techcampus-dresden",
+    "type": "dropoff",
+    "start_utc": "2026-07-31T05:47:40+00:00",
+    "end_utc": "2026-08-03T14:47:40+00:00",
+    "peak_deviation_pct": -18.8,
+    "detectability": "subtle",
+    "cause": "The R&D wing was closed for a lab refit and its ventilation and process power were isolated.",
+    "cause_doc_type": "maintenance_log"
+  },
+  {
+    "anomaly_id": "anom-011",
+    "site_id": "techcampus-dresden",
+    "type": "spike",
+    "start_utc": "2026-07-28T19:57:54+00:00",
+    "end_utc": "2026-07-29T22:57:54+00:00",
+    "peak_deviation_pct": 31.4,
+    "detectability": "subtle",
+    "cause": "A cooling failure in the server room forced the backup units to run at full output alongside the primary plant.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-012",
+    "site_id": "frostlager-bremen",
+    "type": "spike",
+    "start_utc": "2025-11-12T08:44:41+00:00",
+    "end_utc": "2025-11-14T17:44:41+00:00",
+    "peak_deviation_pct": 180.8,
+    "detectability": "obvious",
+    "cause": "Chiller #2 was replaced; the new compressor ran continuously during commissioning before the controller was retuned.",
+    "cause_doc_type": "commissioning"
+  },
+  {
+    "anomaly_id": "anom-013",
+    "site_id": "frostlager-bremen",
+    "type": "dropoff",
+    "start_utc": "2025-11-29T23:16:37+00:00",
+    "end_utc": "2025-12-06T00:16:37+00:00",
+    "peak_deviation_pct": -56.4,
+    "detectability": "obvious",
+    "cause": "Half the freezer hall was emptied for floor repairs and the associated evaporators were isolated.",
+    "cause_doc_type": "maintenance_log"
+  },
+  {
+    "anomaly_id": "anom-014",
+    "site_id": "kuehlhaus-duisburg",
+    "type": "drift",
+    "start_utc": "2025-08-23T18:57:10+00:00",
+    "end_utc": "2025-09-23T19:45:10+00:00",
+    "peak_deviation_pct": 9.1,
+    "detectability": "subtle",
+    "cause": "A refrigerant undercharge developed slowly from a weeping joint on the liquid line, increasing compressor run time week by week.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-015",
+    "site_id": "kuehlhaus-duisburg",
+    "type": "dropoff",
+    "start_utc": "2026-05-25T11:13:06+00:00",
+    "end_utc": "2026-06-07T06:13:06+00:00",
+    "peak_deviation_pct": -21.7,
+    "detectability": "subtle",
+    "cause": "Inbound container volumes collapsed during a river closure, leaving much of the chilled hall empty and lightly loaded.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-016",
+    "site_id": "marktplatz-koeln",
+    "type": "spike",
+    "start_utc": "2025-09-30T17:16:25+00:00",
+    "end_utc": "2025-10-01T07:16:25+00:00",
+    "peak_deviation_pct": 39.2,
+    "detectability": "subtle",
+    "cause": "Night blinds on the chilled aisle were left retracted after a merchandising change, so the cases ran hard overnight.",
+    "cause_doc_type": "incident"
+  },
+  {
+    "anomaly_id": "anom-017",
+    "site_id": "stadtmarkt-leipzig",
+    "type": "dropoff",
+    "start_utc": "2026-03-06T13:58:40+00:00",
+    "end_utc": "2026-03-13T12:58:40+00:00",
+    "peak_deviation_pct": -64.7,
+    "detectability": "obvious",
+    "cause": "The hall closed for a refit of the bakery unit. Only the cold room and security systems stayed live.",
+    "cause_doc_type": "shift_notice"
+  }
+]

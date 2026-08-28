@@ -209,15 +209,15 @@ questions:
 
   - id: rag-002
     category: contextual_rag
-    question: "Frostlager Bremen drew far more power than usual for a few days earlier this year. What caused it?"
+    question: "Frostlager Bremen drew far more power than usual for a few days in November 2025. What caused it?"
     answer_shape: anomaly_reference_and_causal_explanation
     verify:
       fn: anomaly_detail
       args:
-        anomaly_id: TODO-bind-after-injection
+        anomaly_id: anom-012
     expects_tools: [detect_anomalies, search_docs]
     difficulty: hard
-    status: needs_anomaly_binding
+    status: ready
     why: >-
       This is the question the whole project exists to answer, and the only one
       that cannot be answered by either store alone. The agent must find the
@@ -225,12 +225,14 @@ questions:
       explains it, and connect them. A pure-SQL system gets the "what" and never
       the "why"; a pure-RAG system finds a note with no idea whether it matters.
     binding_note: >-
-      anomaly_id is a placeholder until anomalies.py has run. After the first
-      build, open data/generated/anomalies.json, pick a frostlager-bremen spike,
-      paste its id here, and adjust the question wording to match its actual
-      date. Grading the explanation is a judgement call, so this one is scored
-      by an LLM-as-judge against the `cause` string in the manifest -- the only
-      question type in the suite that is not scored deterministically.
+      Bound to anom-012: frostlager-bremen, obvious spike, +180.8%, 12-14 Nov
+      2025, caused by the Chiller #2 replacement running continuously through
+      commissioning. Grading the explanation is a judgement call, so this one is
+      scored by an LLM-as-judge against the `cause` string in the manifest --
+      the only question in the suite not scored deterministically.
+      NOTE: anomaly ids are positional, so regenerating the dataset with a
+      different seed WILL invalidate this binding. Re-check it after any change
+      to synth.py or anomalies.py.
 
 # ===========================================================================
 # TO WRITE: ~20 MORE
